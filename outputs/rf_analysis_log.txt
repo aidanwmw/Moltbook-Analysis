@@ -1,0 +1,23 @@
+=== Random Forest Baseline Analysis Log ===
+
+Total ego graphs extracted: 3798
+Parameters Scanned:
+  n_estimators: [50, 100, 200]
+  max_depth: [10, 20, 30]
+  min_samples_split: [2, 5, 10]
+  min_samples_leaf: [1, 2, 4]
+
+Best Parameters Found: {'max_depth': 20, 'min_samples_leaf': 2, 'min_samples_split': 2, 'n_estimators': 200}
+Best Cross-Validation Accuracy: 0.8947
+
+Test Set Accuracy: 0.8987
+
+Classification Report:
+              precision    recall  f1-score   support
+
+Moltbook (0)       0.88      0.93      0.91       400
+  Reddit (1)       0.92      0.86      0.89       360
+
+    accuracy                           0.90       760
+   macro avg       0.90      0.90      0.90       760
+weighted avg       0.90      0.90      0.90       760

@@ -2,59 +2,19 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
-from datasets import load_dataset
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc
 import random
 from tqdm import tqdm
+from utils import load_moltbook_graph, load_reddit_graph
 
 print("Loading datasets...")
-# 1. Load Datasets
-# Moltbook dataset
-# df_posts = pd.DataFrame(load_dataset("SimulaMet/moltbook-observatory-archive", "posts")["archive"])
-df_comments = pd.DataFrame(load_dataset("SimulaMet/moltbook-observatory-archive", "comments")["archive"])
-# df_posts    = df_posts.sort_values("fetched_at").drop_duplicates("id", keep="last")
-df_comments = df_comments.sort_values("fetched_at").drop_duplicates("id", keep="last")
 
+# 1. Load Datasets and Build Graphs via utils.py
+G_replies = load_moltbook_graph()
+G_reddit = load_reddit_graph()
 
-# Reddit dataset
-ds = load_dataset("anhchanghoangsg/reddit_pushshift_dataset_cleaned", split="train", streaming=True) 
-# Streaming as a kwarg here means that it doesn't load the whole thing in SQLite which is nice since the dataset is hundreds of GB.
-records = []
-# Take top 20000 rows, can change, but dataset is fucking huge
-for row in ds.take(20000):
-    records.append({k: row[k] for k in ["author", "parent_id", "subreddit", "name"]})
-df_reddit = pd.DataFrame(records).dropna()
-
-# 2. Build Graphs
-# ── Moltbook: agent reply graph ───────────────────────────────────────────────
-parent_map  = df_comments[["id","agent_id"]].rename(columns={"id":"parent_id","agent_id":"parent_agent"})
-reply_edges = (df_comments.merge(parent_map, on="parent_id", how="left")
-               .dropna(subset=["agent_id","parent_agent"]))
-reply_edges = reply_edges[reply_edges["agent_id"] != reply_edges["parent_agent"]]
-
-G_replies = nx.DiGraph()
-for (src, tgt), grp in reply_edges.groupby(["agent_id","parent_agent"]):
-    G_replies.add_edge(src, tgt, weight=len(grp))
-
-# ── Reddit: user reply graph (t1_ parent = comment reply) ────────────────────
-df_reddit["comment_id"]        = df_reddit["name"].str.split("_").str[-1]
-df_reddit["parent_comment_id"] = df_reddit["parent_id"].where(
-    df_reddit["parent_id"].str.startswith("t1_")
-).str.split("_").str[-1]
-
-id2author = df_reddit.set_index("comment_id")["author"].to_dict()
-reddit_edges = (df_reddit.dropna(subset=["parent_comment_id"])
-                .assign(parent_author=lambda d: d["parent_comment_id"].map(id2author))
-                .dropna(subset=["parent_author"]))
-reddit_edges = reddit_edges[reddit_edges["author"] != reddit_edges["parent_author"]]
-
-G_reddit = nx.DiGraph()
-for (src, tgt), grp in reddit_edges.groupby(["author","parent_author"]):
-    G_reddit.add_edge(src, tgt, weight=len(grp))
-
-#print(f"Moltbook coparticipation: {G_moltbook.number_of_nodes()} nodes, {G_moltbook.number_of_edges()} edges")
 print(f"Moltbook replies:         {G_replies.number_of_nodes()} nodes, {G_replies.number_of_edges()} edges")
 print(f"Reddit replies:           {G_reddit.number_of_nodes()} nodes, {G_reddit.number_of_edges()} edges")
 
@@ -132,7 +92,7 @@ rf = RandomForestClassifier(random_state=42)
 
 param_grid = {
     'n_estimators': [50, 100, 200],
-    'max_depth': [None, 10, 20, 30],
+    'max_depth': [10, 20, 30],
     'min_samples_split': [2, 5, 10],
     'min_samples_leaf': [1, 2, 4]
 }
@@ -156,7 +116,7 @@ print(class_report)
 print("Exporting cross-validation logs and best parameters...")
 # Save GridSearch results and summary log
 cv_results = pd.DataFrame(grid_search.cv_results_)
-cv_results.to_csv("rf_tuning_results.csv", index=False)
+cv_results.to_csv("outputs/rf_tuning_results.csv", index=False)
 
 with open("rf_analysis_log.txt", "w") as f:
     f.write("=== Random Forest Baseline Analysis Log ===\n\n")
@@ -204,5 +164,5 @@ ax3.set_title('Receiver Operating Characteristic')
 ax3.legend(loc="lower right")
 
 plt.tight_layout()
-plt.savefig("rf_baseline_results.png", dpi=300)
+plt.savefig("outputs/rf_baseline_results.png", dpi=300)
 print("Saved performance plot to rf_baseline_results.png")

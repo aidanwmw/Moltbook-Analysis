@@ -1,3 +1,5 @@
 .vscode/settings.json
 .DS_Store
-/Data
+./data
+./GEMINI.md
+./outputs
