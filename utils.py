@@ -7,6 +7,10 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# hf_token = os.environ.get("HF_TOKEN")
+with open("key_file.txt", "r") as f:
+    hf_token = f.read().strip()
+
 def get_platform_colors():
     """Returns the standardized color palette for the project."""
     return {"Moltbook": "#2C5F8A", "Reddit": "#FF4500"}
@@ -27,7 +31,7 @@ def load_moltbook_graph(cache=True):
             return pickle.load(f)
 
     logging.info("Building Moltbook graph from Hugging Face dataset...")
-    df_comments = pd.DataFrame(load_dataset("SimulaMet/moltbook-observatory-archive", "comments")["archive"])
+    df_comments = pd.DataFrame(load_dataset("SimulaMet/moltbook-observatory-archive", "comments", token=hf_token)["archive"])
     df_comments = df_comments.sort_values("fetched_at").drop_duplicates("id", keep="last")
 
     parent_map = df_comments[["id", "agent_id"]].rename(columns={"id": "parent_id", "agent_id": "parent_agent"})
@@ -57,7 +61,7 @@ def load_reddit_graph(cache=True, limit=50000):
             return pickle.load(f)
 
     logging.info(f"Building Reddit graph from Hugging Face dataset (limit={limit})...")
-    ds = load_dataset("anhchanghoangsg/reddit_pushshift_dataset_cleaned", split="train", streaming=True) 
+    ds = load_dataset("anhchanghoangsg/reddit_pushshift_dataset_cleaned", split="train", streaming=True, token=hf_token)
     
     records = []
     for row in ds.take(limit):
@@ -86,6 +90,64 @@ def load_reddit_graph(cache=True, limit=50000):
             pickle.dump(G, f)
             
     return G
+
+def load_temporal_moltbook_graph(cache=True, window_days=1):
+    """Loads or builds the Moltbook reply graph."""
+
+
+    cache_path = _get_cache_path("temporal_moltbook_graph")
+    
+    if cache and os.path.exists(cache_path):
+        logging.info(f"Loading Moltbook graph from cache: {cache_path}")
+        with open(cache_path, 'rb') as f:
+            return pickle.load(f)
+
+    logging.info("Building Moltbook graph from Hugging Face dataset...")
+    # load entire dataset
+    df_comments = pd.DataFrame(load_dataset("SimulaMet/moltbook-observatory-archive", "comments", token=hf_token)["archive"])
+    
+    # add timestamp column with created_at in datetime format
+    df_comments['timestamp'] = pd.to_datetime(df_comments['created_at'])
+    # sort by timestamp and drop duplicates, keeping the first occurrence (earliest)
+    df_comments = df_comments.sort_values("timestamp").drop_duplicates("id", keep="first")
+
+    # map parent_id to parent_agent for all comments
+    parent_map = df_comments[["id", "agent_id"]].rename(columns={
+                                                                "id": "parent_id", 
+                                                                "agent_id": "parent_agent"
+                                                                })
+    # merge to get parent_agent for each comment
+    reply_edges = (df_comments.merge(parent_map, on="parent_id", how="left")
+                   .dropna(subset=["agent_id", "parent_agent"]))
+
+    reply_edges = reply_edges.set_index('timestamp')
+    time_periods = []
+    cumulative_edges = pd.DataFrame()
+
+    for period, current_window_edges in reply_edges.resample(f'{window_days}D'):
+        # logging.info(f"Processing window starting at {period} with {len(current_window_edges)} edges")
+
+        if current_window_edges.empty:
+            continue
+
+        cumulative_edges = pd.concat([cumulative_edges, current_window_edges])
+
+        G = nx.DiGraph(name=f"Moltbook_{period.date()}")
+        for (src, tgt), grp in cumulative_edges.groupby(["agent_id", "parent_agent"]):
+            G.add_edge(src, tgt, weight=len(grp))
+
+        time_periods.append({
+            "date": period,
+            "graph": G
+        })
+
+        logging.info(f"Snapshot {period.date()}: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+
+    if cache:
+        with open(cache_path, 'wb') as f:
+            pickle.dump(time_periods, f)
+            
+    return time_periods
 
 if __name__ == "__main__":
     # Test loading
