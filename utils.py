@@ -132,16 +132,21 @@ def load_temporal_moltbook_graph(cache=True, window_days=1):
 
         cumulative_edges = pd.concat([cumulative_edges, current_window_edges])
 
-        G = nx.DiGraph(name=f"Moltbook_{period.date()}")
+        cum_G = nx.DiGraph(name=f"Moltbook_{period.date()}")
         for (src, tgt), grp in cumulative_edges.groupby(["agent_id", "parent_agent"]):
-            G.add_edge(src, tgt, weight=len(grp))
+            cum_G.add_edge(src, tgt, weight=len(grp))
+
+        window_G = nx.DiGraph(name=f"Moltbook_{period.date()}")
+        for (src, tgt), grp in current_window_edges.groupby(["agent_id", "parent_agent"]):
+            window_G.add_edge(src, tgt, weight=len(grp))
 
         time_periods.append({
             "date": period,
-            "graph": G
+            "graph_cumulative": cum_G,
+            "graph_window": window_G
         })
 
-        logging.info(f"Snapshot {period.date()}: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+        logging.info(f"Snapshot {period.date()}: {cum_G.number_of_nodes()} nodes, {cum_G.number_of_edges()} edges")
 
     if cache:
         with open(cache_path, 'wb') as f:
