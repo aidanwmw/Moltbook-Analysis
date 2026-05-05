@@ -7,9 +7,10 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# hf_token = os.environ.get("HF_TOKEN")
-with open("key_file.txt", "r") as f:
-    hf_token = f.read().strip()
+hf_token = None
+if os.path.exists("key_file.txt"):
+    with open("key_file.txt", "r") as f:
+        hf_token = f.read().strip()
 
 def get_platform_colors():
     """Returns the standardized color palette for the project."""
